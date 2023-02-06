@@ -1,39 +1,48 @@
-import urllib.request
-import urllib.parse
-import urllib.error
-from bs4 import BeautifulSoup
-import ssl
-import json
-import ast
+import sys
 import os
-from urllib.request import Request, urlopen
 from random import shuffle
+import json
+import lyricsgenius as lg
+
 import threading
-import time
+from time import sleep
+
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+import pandas as pd
 
 # TODOs:
 # Add larger fontsize
 # Add scoring
-# Make so I can fetch more that 100 songs from a playlist
 
-# Fix loading (use Måns Hamilton to test)
-# user = 'spotify:user:monsiponsi'
-# playlist = 'spotify:playlist:2jKUBQjet8kDhLgC3LULJR'
+api_key = "XXX_XXXXXXXXXXXXXX-XXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-XXXXXX"
+cid = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+secret = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
 
 def main():
     data = mode_select()
+
     shuffle(data['songs'])
+
+    genius = lg.Genius(api_key, skip_non_songs=True, excluded_terms=["(Remix)", "(Live)"], remove_section_headers=False)
+    genius.retries = 3
 
     for song in data['songs']:
         artist = song['artist']
         song_title = song['song_title']
         url = song['url']
-        data = scrape(url)
 
-        if len(data[0]) != 0 and len(data[1]) != 0:
-            score = print_game(data[0], data[1])
+        sleep(0.1)
+        data = scrape(genius, artist, song_title)
+        lyrics = get_game_lyrics(data[2])
+
+        if lyrics[0] != "" and lyrics[1] != "" and lyrics[2] != "" and lyrics[3] != "":
+            if len(threading. enumerate()) > 1:
+                thread.join()
+            thread = threading.Thread(target = print_game, args = (data[0], data[1], lyrics))
+            thread.start()
+
+    print("Songs hits: {}/{}".format(count, total))
 
 def mode_select():
     print('Which mode do you want to play?')
@@ -41,97 +50,72 @@ def mode_select():
     print('Mode 2: Personal Spotify Playlist')
 
     mode = input('\n')
-    os.system('clear')
 
     if mode == '1':
         with open('good.txt') as json_file:
             return json.load(json_file)
     elif mode == '2':
-        user = input('Enter spotify user-URI: \n')
-        playlist = input('Enter spotify playlist-URI: \n')
+        user = input('Spotify username: \n')
+        playlist = input('Spotify playlist link: \n')
 
-        #user = 'spotify:user:monsiponsi'
-        #playlist = 'spotify:playlist:3vcpkt5dhCWfKzeiFzQaCf'
+        #user = "spotify"
+        #playlist = "https://open.spotify.com/playlist/37i9dQZF1DXbTxeAdrVG2l?si=7d0772546b2743e0"
+
+        playlist_code = playlist.split('/')
 
         os.system('clear')
-        return get_spotify_songs(user, playlist)
+        return get_spotify_songs(user, playlist_code[4].split('?')[0])
 
-def run(stop):
+def get_spotify_songs(creator, playlist_id):
+    client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret)
+    sp = spotipy.Spotify(client_credentials_manager = client_credentials_manager)
+
+    playlist = sp.user_playlist_tracks(creator, playlist_id)["items"]
+
+    playlist_dict = {}
+    playlist_dict['songs'] = []
+
+    for track in playlist:
+        temp_dict = {}
+        temp_dict['artist'] = track["track"]["album"]["artists"][0]["name"]
+        temp_dict['song_title'] = track["track"]["name"]
+        temp_dict['url'] = ""
+        playlist_dict['songs'].append(temp_dict)
+
+    return playlist_dict
+
+def scrape(genius, artist, song_title):
+
+    sys.stdout = open(os.devnull, 'w')
+    song = genius.search_song(song_title, artist)
+    sys.stdout = sys.__stdout__
+
+    if song == None:
+        return [song_title, artist, ""]
+
+    artist = song.artist
+    title = song.title
+    lyrics = song.lyrics
+
+    return [artist, title, lyrics]
+
+def get_game_lyrics(lyrics):
+    game_lyrics = ["","","",""]
     count = 0
-    while True:
-        time.sleep(0.3)
-        loading = "Loading" + '.' * count
-        count += 1
-        print(loading,end='\r')
-        if stop():
-            break
 
-def scrape(url):
-    # For ignoring SSL certificate errors
+    for line in lyrics.splitlines():
+        if count > 0 and count < 5:
+            game_lyrics[count-1] = line
+            count += 1
+        if("[Chorus" in line or "[Refräng" in line):
+            count = 1
 
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    return game_lyrics
 
-    # Making the website believe that you are accessing it using a mozilla browser
-    req = Request(url, headers = { 'User-Agent' : 'Mozilla/5.0' })
-
-    stop_threads = False
-    load_thread = threading.Thread(target = run, args = (lambda : stop_threads, ))
-    load_thread.start()
-
-    try:
-        webpage = urlopen(req).read()
-    except:
-        stop_threads = True
-        load_thread.join()
-        return [[],[]]
-
-    stop_threads = True
-    load_thread.join()
-
-    # Creating a BeautifulSoup object of the html page for easy extraction of data.
-
-    soup = BeautifulSoup(webpage, 'html.parser')
-    html = soup.prettify('utf-8')
-    song_json = {}
-    song_json['Lyrics'] = []
-
-    # Extract Title of the song
-    for title in soup.findAll('title'):
-        song_json['Title'] = title.text.strip()
-    title = song_json['Title'][0:-23]
-
-    # Extract the Lyrics of the song
-    for div in soup.findAll('div', attrs = {'class': 'lyrics'}):
-        song_json['Lyrics'].append(div.text.strip().split("\n"))
-
-    extracting = False
-    get_into_int = 2
-    lyrics = []
-
-    try:
-        for line in song_json['Lyrics'][0]:
-            if get_into_int == 0:
-                if len(line) == 0:
-                    continue
-                elif extracting:
-                    lyrics.append(line)
-                    if len(lyrics) == 4:
-                        break
-                elif line == "[Chorus]" or line == "[Refräng]":
-                    extracting = True
-            else:
-                get_into_int -= 1
-    except:
-        return [[],[]]
-
-
-    return [title, lyrics]
-
-def print_game(title, lyrics):
+def print_game(artist, title, lyrics):
     os.system('clear')
-    print("Title: " + title + '\n')
+    print("Title: " + title)
+    print("Artist: " + artist + '\n')
 
     print("--------------- TEAM ONE ---------------" + '\n')
     print(lyrics[0])
@@ -142,76 +126,5 @@ def print_game(title, lyrics):
     print(lyrics[3])
 
     return input('\n' + '\n' + '\n' + '\n' + '\n' + '\n' + "Press Enter to get a new song..." + '\n')
-
-def save_song(artist, song_title, url, txt):
-    with open(txt, 'r') as input_file:
-        data = json.load(input_file)
-        data['songs'].append({
-            'artist': artist,
-            'song_title': song_title,
-            'url': url
-        })
-
-    with open(txt, 'w') as output_file:
-        json.dump(data, output_file)
-
-def sort_song(score):
-    if score == "":
-        print("GOOD SONG")
-        save_song(artist, song_title, url, 'good.txt')
-    else:
-        print("BAD SONG")
-        save_song(artist, song_title, url, 'bad.txt')
-
-def get_spotify_songs(user, playlist):
-    cid = 'cbbc72a9f47e489696dc8483391f79e7'
-    secret = '1d1ce20d02244ceba9ce3247cb4311a1'
-
-    client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret)
-    sp = spotipy.Spotify(client_credentials_manager = client_credentials_manager)
-
-    user_id = user.split(':')
-    playlist_id = playlist.split(':')
-    playlist = sp.user_playlist(user_id[2], playlist_id[2])
-
-    data = {}
-    data['songs'] = []
-
-    for song_index in range(len(playlist['tracks']['items'])):
-        artist = playlist['tracks']['items'][song_index]['track']['artists'][0]['name']
-        title = playlist['tracks']['items'][song_index]['track']['name']
-
-        url_artist = ''
-        url_title = ''
-
-        for char in artist:
-            if char == ' ':
-                url_artist += '-'
-            elif char == 'å' or char == 'Å' or char == 'ä' or char == 'Ä':
-                url_artist += 'a'
-            elif char == 'ö' or char == 'Ö':
-                url_artist += 'o'
-            else:
-                url_artist += char
-
-        for char in title:
-            if char == ' ':
-                url_title += '-'
-            elif char == 'å' or char == 'Å' or char == 'ä' or char == 'Ä':
-                url_title += 'a'
-            elif char == 'ö' or char == 'Ö':
-                url_title += 'o'
-            else:
-                url_title += char
-
-        url = 'https://genius.com/' + url_artist + '-' + url_title + '-lyrics'
-
-        data['songs'].append({
-            'artist': artist,
-            'song_title': title,
-            'url': url
-        })
-
-    return data
 
 main()
