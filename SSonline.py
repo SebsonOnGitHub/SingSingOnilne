@@ -12,7 +12,6 @@ from spotipy.oauth2 import SpotifyClientCredentials
 import pandas as pd
 
 # TODOs:
-# Add larger fontsize
 # Add scoring
 
 api_key = "XXX_XXXXXXXXXXXXXX-XXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-XXXXXX"
